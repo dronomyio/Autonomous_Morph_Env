@@ -90,3 +90,4 @@ COST_MONITORING_CONFIG = {
     "enabled": True,  # Set to False to disable cost monitoring
     "collection_interval": 60,  # Data collection interval in seconds
     "dashboard_port": 8050  # Port for the monitoring dashboard
+}

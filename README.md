@@ -38,9 +38,13 @@ The installation process follows these steps:
 
 ## Usage Instructions
 
+### Starting the Environment
 
-
-
+```bash
+# Start Docker containers
+cd /root/trading_env
+docker-compose up -d
+```
 
 ### Accessing Jupyter Lab
 
@@ -48,31 +52,6 @@ Access Jupyter Lab through either:
 - The exposed HTTP service URL: `https://jupyter-[instance-id].http.cloud.morph.so`
 - SSH port forwarding: `ssh -L 8888:localhost:8888 [instance-id]@ssh.cloud.morph.so`
 
-from local browser try to access localhost:8888 -- it will be inaccessible as there is no docker started in the VM yet. Follow on
-
-### Starting the Environment
-
-```bash
-# Start Docker containers
-cd /root/trading_env
-docker-compose down
-docker-compose up -d
-```
-# Access Environment Docker Setup
-
-Then enter the Docker container 
-```
-# First, find your container ID
-docker ps
-
-# Then enter the container
-docker exec -it CONTAINER_ID bash
-
-# Now you can use Python and Conda inside the container
-python --version
-conda --version
-
-```
 ### Working with Kafka
 
 ```bash
