@@ -7,6 +7,7 @@ This script creates a customizable Morph.so environment with support for:
 - Conda for Python package management
 - Kafka for event streaming
 - Vertica client for database access
+- NATS.io messaging system
 - Kubernetes (minikube) for container orchestration
 - C++ development environment
 - Go programming language
@@ -330,12 +331,269 @@ func main() {
         ssh.run(f"echo '{build_script}' > {go_test_dir}/build.sh").raise_on_error()
         ssh.run(f"chmod +x {go_test_dir}/build.sh").raise_on_error()
     
+    def install_nats(self, ssh):
+        """Install NATS.io on the VM."""
+        if not self.config.MODULE_CONFIG["install_nats"]:
+            return
+        
+        print("Installing NATS.io...")
+        nats_version = self.config.NATS_CONFIG["version"]
+        
+        # Create NATS directory
+        nats_dir = self.config.DIR_CONFIG["nats_dir"]
+        ssh.run(f"mkdir -p {nats_dir}/config").raise_on_error()
+        
+        # Download and install NATS server
+        print(f"  - Installing NATS server {nats_version}...")
+        ssh.run(f"curl -L https://github.com/nats-io/nats-server/releases/download/v{nats_version}/nats-server-v{nats_version}-linux-amd64.tar.gz -o /tmp/nats-server.tar.gz").raise_on_error()
+        ssh.run("tar -xzf /tmp/nats-server.tar.gz -C /tmp").raise_on_error()
+        ssh.run(f"mv /tmp/nats-server-v{nats_version}-linux-amd64/nats-server /usr/local/bin/").raise_on_error()
+        ssh.run("rm -rf /tmp/nats-server*").raise_on_error()
+        
+        # Verify NATS server installation
+        ssh.run("nats-server --version").raise_on_error()
+        
+        # Install NATS CLI
+        print("  - Installing NATS CLI...")
+        ssh.run("curl -L https://github.com/nats-io/natscli/releases/download/v0.2.1/nats-0.2.1-linux-amd64.zip -o /tmp/nats-cli.zip").raise_on_error()
+        ssh.run("apt-get install -y unzip").raise_on_error()
+        ssh.run("unzip -o /tmp/nats-cli.zip -d /tmp").raise_on_error()
+        ssh.run("mv /tmp/nats-0.2.1-linux-amd64/nats /usr/local/bin/").raise_on_error()
+        ssh.run("chmod +x /usr/local/bin/nats").raise_on_error()
+        ssh.run("rm -rf /tmp/nats-cli.zip /tmp/nats-0.2.1-linux-amd64").raise_on_error()
+        
+        # Verify NATS CLI installation
+        ssh.run("nats --version").raise_on_error()
+        
+        # Install NATS Python client if enabled
+        if self.config.NATS_CONFIG["install_nats_py"]:
+            print("  - Installing NATS Python client...")
+            ssh.run("pip install asyncio-nats-client[nkeys]").raise_on_error()
+        
+        # Create NATS configuration file
+        print("  - Creating NATS configuration...")
+        self.create_nats_config(ssh)
+        
+        # Create NATS systemd service
+        print("  - Creating NATS systemd service...")
+        self.create_nats_service(ssh)
+        
+        # Create NATS example scripts
+        print("  - Creating NATS example scripts...")
+        self.create_nats_examples(ssh)
+    
+    def create_nats_config(self, ssh):
+        """Create NATS configuration file."""
+        nats_dir = self.config.DIR_CONFIG["nats_dir"]
+        
+        # Basic configuration
+        nats_config = f"""# NATS Server Configuration
+port: {self.config.NATS_CONFIG["client_port"]}
+http: {self.config.NATS_CONFIG["http_port"]}
+cluster {{
+  name: {self.config.NATS_CONFIG["cluster_name"]}
+  port: {self.config.NATS_CONFIG["routing_port"]}
+}}
+"""
+        
+        # Add JetStream configuration if enabled
+        if self.config.NATS_CONFIG["jetstream_enabled"]:
+            nats_config += """
+jetstream {
+  store_dir: "/var/lib/nats/jetstream"
+  max_mem: 1G
+  max_file: 10G
+}
+"""
+        
+        # Write configuration to file
+        ssh.run(f"echo '{nats_config}' > {nats_dir}/config/nats-server.conf").raise_on_error()
+        
+        # Create JetStream directory if enabled
+        if self.config.NATS_CONFIG["jetstream_enabled"]:
+            ssh.run("mkdir -p /var/lib/nats/jetstream").raise_on_error()
+            ssh.run("chown -R root:root /var/lib/nats").raise_on_error()
+    
+    def create_nats_service(self, ssh):
+        """Create NATS systemd service."""
+        nats_dir = self.config.DIR_CONFIG["nats_dir"]
+        
+        # Create systemd service file
+        service_file = """[Unit]
+Description=NATS Server
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/nats-server -c /root/trading_env/nats/config/nats-server.conf
+Restart=always
+RestartSec=5
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target
+"""
+        
+        # Write service file
+        ssh.run(f"echo '{service_file}' > /etc/systemd/system/nats-server.service").raise_on_error()
+        
+        # Reload systemd and enable service
+        ssh.run("systemctl daemon-reload").raise_on_error()
+        ssh.run("systemctl enable nats-server.service").raise_on_error()
+    
+    def create_nats_examples(self, ssh):
+        """Create NATS example scripts."""
+        nats_dir = self.config.DIR_CONFIG["nats_dir"]
+        
+        # Create examples directory
+        ssh.run(f"mkdir -p {nats_dir}/examples").raise_on_error()
+        
+        # Create Python publisher example
+        pub_example = """#!/usr/bin/env python3
+import asyncio
+import argparse
+from nats.aio.client import Client as NATS
+
+async def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('subject', help='Subject to publish to')
+    parser.add_argument('-d', '--data', default='Hello from NATS!', help='Message data')
+    parser.add_argument('-s', '--server', default='nats://localhost:4222', help='NATS server URL')
+    args = parser.parse_args()
+    
+    nc = NATS()
+    await nc.connect(args.server)
+    
+    print(f"Publishing to {args.subject}: {args.data}")
+    await nc.publish(args.subject, args.data.encode())
+    await nc.flush()
+    await nc.close()
+
+if __name__ == '__main__':
+    asyncio.run(main())
+"""
+        ssh.run(f"echo '{pub_example}' > {nats_dir}/examples/nats-pub.py").raise_on_error()
+        ssh.run(f"chmod +x {nats_dir}/examples/nats-pub.py").raise_on_error()
+        
+        # Create Python subscriber example
+        sub_example = """#!/usr/bin/env python3
+import asyncio
+import argparse
+from nats.aio.client import Client as NATS
+
+async def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('subject', help='Subject to subscribe to')
+    parser.add_argument('-s', '--server', default='nats://localhost:4222', help='NATS server URL')
+    parser.add_argument('-q', '--queue', help='Queue group')
+    args = parser.parse_args()
+    
+    nc = NATS()
+    await nc.connect(args.server)
+    
+    async def message_handler(msg):
+        subject = msg.subject
+        data = msg.data.decode()
+        print(f"Received message on {subject}: {data}")
+    
+    if args.queue:
+        await nc.subscribe(args.subject, args.queue, message_handler)
+        print(f"Subscribed to {args.subject} in queue group {args.queue}")
+    else:
+        await nc.subscribe(args.subject, cb=message_handler)
+        print(f"Subscribed to {args.subject}")
+    
+    print("Listening for messages (Ctrl+C to quit)...")
+    
+    try:
+        # Keep the subscription alive
+        while True:
+            await asyncio.sleep(1)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        await nc.close()
+
+if __name__ == '__main__':
+    asyncio.run(main())
+"""
+        ssh.run(f"echo '{sub_example}' > {nats_dir}/examples/nats-sub.py").raise_on_error()
+        ssh.run(f"chmod +x {nats_dir}/examples/nats-sub.py").raise_on_error()
+        
+        # Create JetStream example if enabled
+        if self.config.NATS_CONFIG["jetstream_enabled"]:
+            js_example = """#!/usr/bin/env python3
+import asyncio
+import argparse
+from nats.aio.client import Client as NATS
+from nats.js.api import StreamConfig
+
+async def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--create', action='store_true', help='Create a stream')
+    parser.add_argument('--publish', action='store_true', help='Publish messages')
+    parser.add_argument('--subscribe', action='store_true', help='Subscribe to messages')
+    parser.add_argument('-s', '--server', default='nats://localhost:4222', help='NATS server URL')
+    parser.add_argument('-n', '--stream', default='trading_data', help='Stream name')
+    parser.add_argument('-u', '--subject', default='trading.data', help='Subject')
+    args = parser.parse_args()
+    
+    nc = NATS()
+    await nc.connect(args.server)
+    
+    # Get JetStream context
+    js = nc.jetstream()
+    
+    if args.create:
+        # Create a stream
+        stream_config = StreamConfig(
+            name=args.stream,
+            subjects=[args.subject],
+            retention="limits",
+            max_msgs=10000,
+            max_bytes=1024*1024*100,  # 100MB
+            discard="old",
+            storage="file"
+        )
+        
+        await js.add_stream(config=stream_config)
+        print(f"Created stream {args.stream} with subject {args.subject}")
+    
+    if args.publish:
+        # Publish messages to the stream
+        for i in range(10):
+            msg = f"Message {i}"
+            ack = await js.publish(args.subject, msg.encode())
+            print(f"Published message to {args.subject}: {msg}, sequence: {ack.seq}")
+    
+    if args.subscribe:
+        # Subscribe to the stream
+        sub = await js.subscribe(args.subject)
+        
+        print(f"Subscribed to {args.subject} (Ctrl+C to quit)...")
+        try:
+            while True:
+                msg = await sub.next_msg()
+                print(f"Received: {msg.data.decode()}, sequence: {msg.metadata.sequence.stream}")
+                await msg.ack()
+        except KeyboardInterrupt:
+            pass
+    
+    await nc.close()
+
+if __name__ == '__main__':
+    asyncio.run(main())
+"""
+            ssh.run(f"echo '{js_example}' > {nats_dir}/examples/jetstream.py").raise_on_error()
+            ssh.run(f"chmod +x {nats_dir}/examples/jetstream.py").raise_on_error()
+    
     def setup_docker_environment(self, ssh):
-        """Set up Docker environment with Conda, Kafka, and Vertica."""
+        """Set up Docker environment with Conda, Kafka, Vertica, and NATS."""
         if not (self.config.MODULE_CONFIG["install_docker"] and 
                 (self.config.MODULE_CONFIG["install_conda"] or 
                  self.config.MODULE_CONFIG["install_kafka"] or 
-                 self.config.MODULE_CONFIG["install_vertica"])):
+                 self.config.MODULE_CONFIG["install_vertica"] or
+                 self.config.MODULE_CONFIG["install_nats"])):
             return
         
         print("Setting up Docker environment...")
@@ -344,17 +602,18 @@ func main() {
         print("  - Creating Dockerfile...")
         dockerfile_content = self.generate_dockerfile()
         base_dir = self.config.DIR_CONFIG["base_dir"]
-        ssh.run(f"echo '{dockerfile_content}' > {base_dir}/{self.config.DOCKER_CONFIG['dockerfile']}").raise_on_error()
+        # Use a temporary file to avoid issues with quotes in the content
+        ssh.run(f"cat > {base_dir}/{self.config.DOCKER_CONFIG['dockerfile']} << 'DOCKERFILECONTENT'\n{dockerfile_content}\nDOCKERFILECONTENT").raise_on_error()
         
         # Create docker-compose.yml
         print("  - Creating docker-compose.yml...")
         docker_compose_content = self.generate_docker_compose()
-        ssh.run(f"echo '{docker_compose_content}' > {base_dir}/{self.config.DOCKER_CONFIG['compose_file']}").raise_on_error()
+        ssh.run(f"cat > {base_dir}/{self.config.DOCKER_CONFIG['compose_file']} << 'COMPOSEFILECONTENT'\n{docker_compose_content}\nCOMPOSEFILECONTENT").raise_on_error()
         
         # Create start.sh
         print("  - Creating start.sh...")
         start_script_content = self.generate_start_script()
-        ssh.run(f"echo '{start_script_content}' > {base_dir}/{self.config.DOCKER_CONFIG['start_script']}").raise_on_error()
+        ssh.run(f"cat > {base_dir}/{self.config.DOCKER_CONFIG['start_script']} << 'STARTSCRIPTCONTENT'\n{start_script_content}\nSTARTSCRIPTCONTENT").raise_on_error()
         ssh.run(f"chmod +x {base_dir}/{self.config.DOCKER_CONFIG['start_script']}").raise_on_error()
         
         # Build Docker environment
@@ -463,6 +722,55 @@ RUN wget -q https://www.vertica.com/client_drivers/12.0.x/12.0.4-0/vertica-clien
 RUN pip install vertica-python
 """
         
+        # Add NATS installation if enabled
+        if self.config.MODULE_CONFIG["install_nats"]:
+            nats_version = self.config.NATS_CONFIG["version"]
+            dockerfile += f"""
+# Install NATS server
+ENV NATS_VERSION={nats_version}
+RUN curl -L https://github.com/nats-io/nats-server/releases/download/v$NATS_VERSION/nats-server-v$NATS_VERSION-linux-amd64.tar.gz -o /tmp/nats-server.tar.gz && \\
+    tar -xzf /tmp/nats-server.tar.gz -C /tmp && \\
+    mv /tmp/nats-server-v$NATS_VERSION-linux-amd64/nats-server /usr/local/bin/ && \\
+    chmod +x /usr/local/bin/nats-server && \\
+    rm -rf /tmp/nats-server*
+
+# Install NATS CLI - fixed to ensure it's in PATH
+RUN curl -L https://github.com/nats-io/natscli/releases/download/v0.2.1/nats-0.2.1-linux-amd64.zip -o /tmp/nats-cli.zip && \\
+    apt-get update && apt-get install -y unzip && \\
+    unzip -o /tmp/nats-cli.zip -d /tmp && \\
+    mv /tmp/nats-0.2.1-linux-amd64/nats /usr/local/bin/ && \\
+    chmod +x /usr/local/bin/nats && \\
+    rm -rf /tmp/nats-cli.zip /tmp/nats-0.2.1-linux-amd64
+
+# Verify NATS installation
+RUN nats-server --version && nats --version
+
+# Install NATS Python client
+RUN pip install asyncio-nats-client[nkeys]
+
+# Create NATS config directory
+RUN mkdir -p /etc/nats
+
+# Create JetStream directory
+RUN mkdir -p /var/lib/nats/jetstream && \\
+    chmod -R 777 /var/lib/nats
+
+# Create NATS configuration file
+RUN echo "# NATS Server Configuration\\n\
+port: {self.config.NATS_CONFIG["client_port"]}\\n\
+http: {self.config.NATS_CONFIG["http_port"]}\\n\
+cluster {{\\n\
+  name: {self.config.NATS_CONFIG["cluster_name"]}\\n\
+  port: {self.config.NATS_CONFIG["routing_port"]}\\n\
+}}\\n\
+\\n\
+jetstream {{\\n\
+  store_dir: \\"/var/lib/nats/jetstream\\"\\n\
+  max_mem: 1G\\n\
+  max_file: 10G\\n\
+}}" > /etc/nats/nats-server.conf
+"""
+        
         # Add final parts of Dockerfile
         dockerfile += """
 # Create working directory
@@ -481,6 +789,15 @@ RUN chmod +x /app/start.sh
 EXPOSE 9092
 # Zookeeper
 EXPOSE 2181
+"""
+        
+        if self.config.MODULE_CONFIG["install_nats"]:
+            dockerfile += f"""# NATS client port
+EXPOSE {self.config.NATS_CONFIG["client_port"]}
+# NATS monitoring port
+EXPOSE {self.config.NATS_CONFIG["http_port"]}
+# NATS clustering port
+EXPOSE {self.config.NATS_CONFIG["routing_port"]}
 """
         
         if self.config.MODULE_CONFIG["install_jupyter"]:
@@ -522,13 +839,31 @@ services:
       - "2181:2181"
 """
         
+        if self.config.MODULE_CONFIG["install_nats"]:
+            docker_compose += f"""      # NATS client port
+      - "{self.config.NATS_CONFIG["client_port"]}:{self.config.NATS_CONFIG["client_port"]}"
+      # NATS monitoring port
+      - "{self.config.NATS_CONFIG["http_port"]}:{self.config.NATS_CONFIG["http_port"]}"
+      # NATS clustering port
+      - "{self.config.NATS_CONFIG["routing_port"]}:{self.config.NATS_CONFIG["routing_port"]}"
+"""
+        
         # Add volume mappings
         docker_compose += """    volumes:
       # Mount your local data directory
       - ./data:/app/data
       # Mount your notebooks directory
       - ./notebooks:/app/notebooks
-    environment:
+"""
+        
+        if self.config.MODULE_CONFIG["install_nats"]:
+            docker_compose += """      # Mount NATS configuration
+      - ./nats/config:/etc/nats
+      # Mount NATS JetStream data
+      - ./nats/jetstream:/var/lib/nats/jetstream
+"""
+        
+        docker_compose += """    environment:
 """
         
         # Add environment variables
@@ -537,7 +872,29 @@ services:
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
 """
         
+        if self.config.MODULE_CONFIG["install_nats"]:
+            docker_compose += f"""      # NATS configuration
+      NATS_CLUSTER_NAME: {self.config.NATS_CONFIG["cluster_name"]}
+"""
+        
         docker_compose += """    restart: unless-stopped
+"""
+        
+        # Add NATS service if standalone mode is desired
+        if self.config.MODULE_CONFIG["install_nats"] and False:  # Disabled for now, using embedded NATS
+            docker_compose += f"""
+  nats:
+    image: nats:{self.config.NATS_CONFIG["version"]}
+    container_name: nats-server
+    ports:
+      - "{self.config.NATS_CONFIG["client_port"]}:{self.config.NATS_CONFIG["client_port"]}"
+      - "{self.config.NATS_CONFIG["http_port"]}:{self.config.NATS_CONFIG["http_port"]}"
+      - "{self.config.NATS_CONFIG["routing_port"]}:{self.config.NATS_CONFIG["routing_port"]}"
+    volumes:
+      - ./nats/config:/etc/nats
+      - ./nats/jetstream:/var/lib/nats/jetstream
+    command: ["-c", "/etc/nats/nats-server.conf"]
+    restart: unless-stopped
 """
         
         return docker_compose
@@ -572,6 +929,31 @@ sleep 10
 # Create a default topic
 echo "Creating default topic 'trading-data'..."
 $KAFKA_HOME/bin/kafka-topics.sh --create --topic trading-data --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1 || true
+
+"""
+        
+        # Add NATS startup if enabled
+        if self.config.MODULE_CONFIG["install_nats"]:
+            start_script += """# Start NATS server in background
+echo "Starting NATS server..."
+if [ -f "/etc/nats/nats-server.conf" ]; then
+    nats-server -c /etc/nats/nats-server.conf &
+else
+    # Default configuration if no config file exists
+    nats-server --jetstream --store_dir=/var/lib/nats/jetstream &
+fi
+sleep 5
+
+# Verify NATS is running
+echo "Verifying NATS server..."
+if [ -x "$(command -v nats)" ]; then
+    nats server check || echo "NATS server check failed, but continuing..."
+    echo "NATS server info:"
+    nats server info || echo "Could not get NATS server info, but continuing..."
+else
+    echo "NATS CLI not found in PATH, but continuing..."
+    echo "PATH=$PATH"
+fi
 
 """
         
@@ -632,6 +1014,33 @@ fi
 echo ""
 """
         
+        # Add NATS tests if enabled
+        if self.config.MODULE_CONFIG["install_nats"]:
+            test_script += """echo "=== NATS Environment ==="
+echo "NATS server version:"
+nats-server --version
+echo "NATS CLI version:"
+nats --version
+echo "NATS server status:"
+nats server check || echo "NATS server not running"
+echo ""
+
+echo "=== NATS in Docker Container ==="
+CONTAINER_ID=$(docker ps -q | head -n 1)
+if [ -n "$CONTAINER_ID" ]; then
+    echo "Container ID: $CONTAINER_ID"
+    echo "NATS server version in container:"
+    docker exec $CONTAINER_ID nats-server --version || echo "NATS server not found in container"
+    echo "NATS CLI version in container:"
+    docker exec $CONTAINER_ID nats --version || echo "NATS CLI not found in container"
+    echo "NATS server status in container:"
+    docker exec $CONTAINER_ID nats server check || echo "NATS server not running in container"
+else
+    echo "No running containers found"
+fi
+echo ""
+"""
+        
         # Add Kubernetes tests if enabled
         if self.config.MODULE_CONFIG["install_kubernetes"]:
             test_script += """echo "=== Kubernetes Environment ==="
@@ -686,6 +1095,13 @@ echo ""
             jupyter_url = f"https://jupyter-{self.instance.id.replace('_', '-')}.http.cloud.morph.so"
             print(f"✓ Jupyter available at: {jupyter_url}")
         
+        # Expose NATS monitoring if enabled
+        if self.config.SERVICES_CONFIG["expose_nats_monitoring"] and self.config.MODULE_CONFIG["install_nats"]:
+            print("  - Exposing NATS monitoring...")
+            self.instance.expose_http_service("nats-monitor", self.config.SERVICES_CONFIG["nats_monitoring_port"])
+            nats_url = f"https://nats-monitor-{self.instance.id.replace('_', '-')}.http.cloud.morph.so"
+            print(f"✓ NATS monitoring available at: {nats_url}")
+        
         # Expose Kubernetes dashboard if enabled
         if self.config.SERVICES_CONFIG["expose_kubernetes_dashboard"] and self.config.MODULE_CONFIG["install_kubernetes"]:
             print("  - Exposing Kubernetes dashboard...")
@@ -698,6 +1114,7 @@ echo ""
         print("\nCreating snapshot of configured environment...")
         configured_snapshot = self.instance.snapshot()
         print(f"✓ Created configured snapshot: {configured_snapshot.id}")
+        
         return configured_snapshot
     
     def create_readme(self, ssh):
@@ -718,6 +1135,8 @@ This environment has been set up with the following components:
             readme += "- Kafka for event streaming\n"
         if self.config.MODULE_CONFIG["install_vertica"]:
             readme += "- Vertica client for database access\n"
+        if self.config.MODULE_CONFIG["install_nats"]:
+            readme += "- NATS.io messaging system\n"
         if self.config.MODULE_CONFIG["install_kubernetes"]:
             readme += "- Kubernetes (minikube) for container orchestration\n"
         if self.config.MODULE_CONFIG["install_cpp"]:
@@ -753,6 +1172,94 @@ docker-compose logs     # View container logs
 ```
 
 """
+        
+        # Add NATS instructions if enabled
+        if self.config.MODULE_CONFIG["install_nats"]:
+            readme += f"""### NATS.io Messaging
+
+NATS server is available on port {self.config.NATS_CONFIG["client_port"]} for client connections.
+NATS monitoring is available on port {self.config.NATS_CONFIG["http_port"]}.
+
+Example Python scripts are provided in the {self.config.DIR_CONFIG["nats_dir"]}/examples directory:
+
+```bash
+# Subscribe to a subject
+python {self.config.DIR_CONFIG["nats_dir"]}/examples/nats-sub.py my-subject
+
+# Publish to a subject
+python {self.config.DIR_CONFIG["nats_dir"]}/examples/nats-pub.py my-subject -d "Hello World"
+"""
+            
+            if self.config.NATS_CONFIG["jetstream_enabled"]:
+                readme += """
+# JetStream example (persistent messaging)
+python {self.config.DIR_CONFIG["nats_dir"]}/examples/jetstream.py --create  # Create a stream
+python {self.config.DIR_CONFIG["nats_dir"]}/examples/jetstream.py --publish  # Publish messages
+python {self.config.DIR_CONFIG["nats_dir"]}/examples/jetstream.py --subscribe  # Subscribe to messages
+```
+
+### NATS in Docker Container
+
+To use NATS inside the Docker container:
+
+```bash
+# Check NATS server status
+docker exec trading-environment nats server check
+
+# Get NATS server info
+docker exec trading-environment nats server info
+
+# Subscribe to a subject (run in background)
+docker exec -d trading-environment python -c "
+import asyncio
+from nats.aio.client import Client as NATS
+
+async def main():
+    nc = NATS()
+    await nc.connect('nats://localhost:4222')
+    
+    async def message_handler(msg):
+        subject = msg.subject
+        data = msg.data.decode()
+        print(f'Received message on {subject}: {data}')
+    
+    await nc.subscribe('test.subject', cb=message_handler)
+    print('Subscribed to test.subject, waiting for messages...')
+    
+    try:
+        while True:
+            await asyncio.sleep(1)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        await nc.close()
+
+if __name__ == '__main__':
+    asyncio.run(main())
+"
+
+# Publish a message
+docker exec trading-environment python -c "
+import asyncio
+from nats.aio.client import Client as NATS
+
+async def main():
+    nc = NATS()
+    await nc.connect('nats://localhost:4222')
+    
+    await nc.publish('test.subject', b'Hello from NATS!')
+    print('Published message to test.subject')
+    
+    await nc.close()
+
+if __name__ == '__main__':
+    asyncio.run(main())
+"
+```
+
+"""
+            else:
+                readme += "\n```\n\n"
         
         # Add Kubernetes instructions if enabled
         if self.config.MODULE_CONFIG["install_kubernetes"]:
@@ -830,6 +1337,9 @@ To verify all installed components:
             # Install Docker
             self.install_docker(ssh)
             
+            # Install NATS
+            self.install_nats(ssh)
+            
             # Install Kubernetes
             self.install_kubernetes(ssh)
             
@@ -862,6 +1372,9 @@ To verify all installed components:
         # Print service URLs
         if self.config.SERVICES_CONFIG["expose_jupyter"]:
             print(f"Jupyter URL: https://jupyter-{self.instance.id.replace('_', '-')}.http.cloud.morph.so")
+        
+        if self.config.SERVICES_CONFIG["expose_nats_monitoring"] and self.config.MODULE_CONFIG["install_nats"]:
+            print(f"NATS Monitoring URL: https://nats-monitor-{self.instance.id.replace('_', '-')}.http.cloud.morph.so")
         
         if self.config.SERVICES_CONFIG["expose_kubernetes_dashboard"] and self.config.MODULE_CONFIG["install_kubernetes"]:
             print(f"Kubernetes Dashboard URL: https://k8s-dashboard-{self.instance.id.replace('_', '-')}.http.cloud.morph.so")

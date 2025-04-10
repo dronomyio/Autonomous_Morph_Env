@@ -66,7 +66,7 @@ LANGUAGES_CONFIG = {
 
 # NATS Configuration
 NATS_CONFIG = {
-    "version": "2.9.17",  # Latest stable version
+    "version": "2.11.1",  # Latest stable version
     "client_port": 4222,
     "http_port": 8222,
     "routing_port": 6222,
