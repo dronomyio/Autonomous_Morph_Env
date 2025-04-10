@@ -84,3 +84,9 @@ SERVICES_CONFIG = {
     "expose_nats_monitoring": True,  # Added NATS monitoring exposure
     "nats_monitoring_port": 8222,
 }
+
+# VM Cost Monitoring Configuration
+COST_MONITORING_CONFIG = {
+    "enabled": True,  # Set to False to disable cost monitoring
+    "collection_interval": 60,  # Data collection interval in seconds
+    "dashboard_port": 8050  # Port for the monitoring dashboard
