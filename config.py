@@ -21,6 +21,7 @@ DIR_CONFIG = {
     "kubernetes_dir": "/root/trading_env/kubernetes",
     "cpp_dir": "/root/trading_env/cpp",
     "go_dir": "/root/trading_env/go",
+    "nats_dir": "/root/trading_env/nats",  # Added NATS directory
 }
 
 # Module Configuration
@@ -33,6 +34,7 @@ MODULE_CONFIG = {
     "install_cpp": True,
     "install_go": True,
     "install_jupyter": True,
+    "install_nats": True,  # Added NATS installation flag
 }
 
 # Docker Configuration
@@ -62,10 +64,23 @@ LANGUAGES_CONFIG = {
     },
 }
 
+# NATS Configuration
+NATS_CONFIG = {
+    "version": "2.9.17",  # Latest stable version
+    "client_port": 4222,
+    "http_port": 8222,
+    "routing_port": 6222,
+    "install_nats_py": True,  # Install Python client for NATS
+    "cluster_name": "trading_cluster",
+    "jetstream_enabled": True,  # Enable JetStream for persistent messaging
+}
+
 # Service Exposure Configuration
 SERVICES_CONFIG = {
     "expose_jupyter": True,
     "jupyter_port": 8888,
     "expose_kubernetes_dashboard": True,
     "kubernetes_dashboard_port": 8001,
+    "expose_nats_monitoring": True,  # Added NATS monitoring exposure
+    "nats_monitoring_port": 8222,
 }
