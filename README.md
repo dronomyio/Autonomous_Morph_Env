@@ -139,3 +139,6 @@ For better performance:
 - Increase VM resources (vCPUs, memory) in the configuration
 - Use Docker volume mounts for data persistence
 - Regularly clean up unused Docker images and containers
+
+## License
+dronomy.io
