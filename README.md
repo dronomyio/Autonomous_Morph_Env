@@ -242,7 +242,23 @@ EOF"
 docker exec minikube-prerequisites kubectl apply -f nats-deployment.yaml
 
 ```
+### Verify NATS is running in Kubernetes:
+```
+docker exec minikube-prerequisites kubectl get pods
+docker exec minikube-prerequisites kubectl get services
 
+```
+### Access NATS from within Kubernetes:
+```
+docker exec minikube-prerequisites bash -c "kubectl run -i --tty nats-box --image=natsio/nats-box --restart=Never -- sh"
+
+```
+### Inside the nats-box pod, you can run:
+```
+# Connect to NATS server
+nats-sub -s nats://nats:4222 ">"
+
+```
 
 ### Working with Kafka
 
