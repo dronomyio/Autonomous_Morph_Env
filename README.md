@@ -45,6 +45,12 @@ The installation process follows these steps:
 cd /root/trading_env
 docker-compose up -d
 ```
+wait for this message:
+ done                                                
+Preparing transaction: done                          
+Verifying transaction: done                          
+Executing transaction: done   
+and kafka to start
 
 ### Accessing Jupyter Lab
 
