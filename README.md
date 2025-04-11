@@ -59,6 +59,7 @@ Access Jupyter Lab through either:
 - SSH port forwarding: `ssh -L 8888:localhost:8888 [instance-id]@ssh.cloud.morph.so`
 
 # Trading Environment Docker Setup
+'''
 
 scp build_env.sh to the morph VM instance 
 scp build_env.zip  <morph_instance>@ssh.cloud.morph.so:~/
@@ -68,8 +69,11 @@ docker-compose up --build
 docker-compose down
 docker-compose up -d
 
+'''
+
 Then enter the Docker container 
 ```
+
 # First, find your container ID
 docker ps
 
@@ -100,23 +104,30 @@ docker run -d \
 
 docker exec minikube-prerequisites apt-get update
 docker exec minikube-prerequisites apt-get install -y curl apt-transport-https
+
 '''
 ### Install kubectl in the container:
 '''
+
 docker exec minikube-prerequisites bash -c "curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64"
 docker exec minikube-prerequisites bash -c "chmod +x minikube-linux-amd64 && mv minikube-linux-amd64 /usr/local/bin/minikube"
+
 '''
 ### Install Minikube in the container:
 '''
 docker exec minikube-prerequisites bash -c "curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64"
 docker exec minikube-prerequisites bash -c "chmod +x minikube-linux-amd64 && mv minikube-linux-amd64 /usr/local/bin/minikube"
+
 '''
 ### Start Minikube with Docker driver:
-'''
+
 # First, install Docker in the container
+'''
 docker exec minikube-prerequisites apt-get install -y docker.io
+'''
 
 # Start Minikube
+'''
 docker exec minikube-prerequisites bash -c "minikube start --driver=docker"
 '''
 ### Verify Kubernetes installation:
@@ -138,23 +149,28 @@ mkdir -p ~/nats/data/jetstream
 ### Create a NATS configuration file:
 '''
 cat > ~/nats/config/nats-server.conf << EOF
+'''
 # NATS Server Configuration
+'''
 port: 4222
 http_port: 8222
 server_name: nats-server
-
+'''
 # JetStream configuration
+'''
 jetstream {
     store_dir: "/data/jetstream"
     max_mem: 1G
     max_file: 10G
 }
-
+'''
 # Logging configuration
+'''
 debug: false
 trace: false
 logtime: true
 EOF
+'''
 ### Run NATS container:
 '''
 docker run -d \
@@ -171,7 +187,9 @@ docker run -d \
 ### Verify NATS is running:
 '''
 docker logs nats-server
+'''
 # Check NATS monitoring endpoint
+'''
 curl http://localhost:8222
 '''
 ### Integrating NATS with Kubernetes
