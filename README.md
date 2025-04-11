@@ -87,6 +87,146 @@ This repository contains a dockerized environment for algorithmic trading develo
 
 More products can be added.
 
+## Manually set up NATS and Kubernetes in your Docker environment. Here's a step-by-step guide 
+
+### Setting up Kubernetes (Minikube) in Docker
+#### 1. Install Docker prerequisites:
+'''
+docker run -d \
+  --name minikube-prerequisites \
+  --network morph-network \
+  ubuntu:22.04 \
+  tail -f /dev/null
+
+docker exec minikube-prerequisites apt-get update
+docker exec minikube-prerequisites apt-get install -y curl apt-transport-https
+'''
+### Install kubectl in the container:
+'''
+docker exec minikube-prerequisites bash -c "curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64"
+docker exec minikube-prerequisites bash -c "chmod +x minikube-linux-amd64 && mv minikube-linux-amd64 /usr/local/bin/minikube"
+'''
+### Install Minikube in the container:
+'''
+docker exec minikube-prerequisites bash -c "curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64"
+docker exec minikube-prerequisites bash -c "chmod +x minikube-linux-amd64 && mv minikube-linux-amd64 /usr/local/bin/minikube"
+'''
+### Start Minikube with Docker driver:
+'''
+# First, install Docker in the container
+docker exec minikube-prerequisites apt-get install -y docker.io
+
+# Start Minikube
+docker exec minikube-prerequisites bash -c "minikube start --driver=docker"
+'''
+### Verify Kubernetes installation:
+'''
+docker exec minikube-prerequisites kubectl get nodes
+docker exec minikube-prerequisites minikube status
+'''
+
+# Setting up NATS in Docker
+### Create a Docker network (if you don't already have one):
+'''
+docker network create morph-network
+'''
+### Create directories for NATS data and configuration:
+'''
+mkdir -p ~/nats/config
+mkdir -p ~/nats/data/jetstream
+'''
+### Create a NATS configuration file:
+'''
+cat > ~/nats/config/nats-server.conf << EOF
+# NATS Server Configuration
+port: 4222
+http_port: 8222
+server_name: nats-server
+
+# JetStream configuration
+jetstream {
+    store_dir: "/data/jetstream"
+    max_mem: 1G
+    max_file: 10G
+}
+
+# Logging configuration
+debug: false
+trace: false
+logtime: true
+EOF
+### Run NATS container:
+'''
+docker run -d \
+  --name nats-server \
+  --network morph-network \
+  -p 4222:4222 \
+  -p 8222:8222 \
+  -p 6222:6222 \
+  -v ~/nats/config:/etc/nats \
+  -v ~/nats/data/jetstream:/data/jetstream \
+  nats:2.9.17 \
+  -c /etc/nats/nats-server.conf
+'''
+### Verify NATS is running:
+'''
+docker logs nats-server
+# Check NATS monitoring endpoint
+curl http://localhost:8222
+'''
+### Integrating NATS with Kubernetes
+# Create a NATS deployment in Kubernetes:
+'''
+docker exec minikube-prerequisites bash -c "cat > nats-deployment.yaml << EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nats
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nats
+  template:
+    metadata:
+      labels:
+        app: nats
+    spec:
+      containers:
+      - name: nats
+        image: nats:2.9.17
+        ports:
+        - containerPort: 4222
+          name: client
+        - containerPort: 8222
+          name: monitoring
+        - containerPort: 6222
+          name: cluster
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats
+spec:
+  selector:
+    app: nats
+  ports:
+  - name: client
+    port: 4222
+    targetPort: 4222
+  - name: monitoring
+    port: 8222
+    targetPort: 8222
+  - name: cluster
+    port: 6222
+    targetPort: 6222
+EOF"
+
+docker exec minikube-prerequisites kubectl apply -f nats-deployment.yaml
+
+'''
+
+
 ### Working with Kafka
 
 ```bash
