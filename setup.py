@@ -7,7 +7,6 @@ This script creates a customizable Morph.so environment with support for:
 - Conda for Python package management
 - Kafka for event streaming
 - Vertica client for database access
-- NATS.io messaging system
 - Kubernetes (minikube) for container orchestration
 - C++ development environment
 - Go programming language
@@ -331,40 +330,559 @@ func main() {
         ssh.run(f"echo '{build_script}' > {go_test_dir}/build.sh").raise_on_error()
         ssh.run(f"chmod +x {go_test_dir}/build.sh").raise_on_error()
     
-    def install_nats(self, ssh):
-        """Install NATS.io on the VM."""
-        if not self.config.MODULE_CONFIG["install_nats"]:
+    def setup_docker_environment(self, ssh):
+        """Set up Docker environment with Conda, Kafka, and Vertica."""
+        if not (self.config.MODULE_CONFIG["install_docker"] and 
+                (self.config.MODULE_CONFIG["install_conda"] or 
+                 self.config.MODULE_CONFIG["install_kafka"] or 
+                 self.config.MODULE_CONFIG["install_vertica"])):
             return
         
-        print("Installing NATS.io...")
-        nats_version = self.config.NATS_CONFIG["version"]
+        print("Setting up Docker environment...")
         
-        # Create NATS directory
-        nats_dir = self.config.DIR_CONFIG["nats_dir"]
-        ssh.run(f"mkdir -p {nats_dir}/config").raise_on_error()
+        # Create Dockerfile
+        print("  - Creating Dockerfile...")
+        dockerfile_content = self.generate_dockerfile()
+        base_dir = self.config.DIR_CONFIG["base_dir"]
+        ssh.run(f"echo '{dockerfile_content}' > {base_dir}/{self.config.DOCKER_CONFIG['dockerfile']}").raise_on_error()
         
-        # Download and install NATS server
-        print(f"  - Installing NATS server {nats_version}...")
-        ssh.run(f"curl -L https://github.com/nats-io/nats-server/releases/download/v{nats_version}/nats-server-v{nats_version}-linux-amd64.tar.gz -o /tmp/nats-server.tar.gz").raise_on_error()
-        ssh.run("tar -xzf /tmp/nats-server.tar.gz -C /tmp").raise_on_error()
-        ssh.run(f"mv /tmp/nats-server-v{nats_version}-linux-amd64/nats-server /usr/local/bin/").raise_on_error()
-        ssh.run("rm -rf /tmp/nats-server*").raise_on_error()
+        # Create docker-compose.yml
+        print("  - Creating docker-compose.yml...")
+        docker_compose_content = self.generate_docker_compose()
+        ssh.run(f"echo '{docker_compose_content}' > {base_dir}/{self.config.DOCKER_CONFIG['compose_file']}").raise_on_error()
         
-        # Verify NATS server installation
-        ssh.run("nats-server --version").raise_on_error()
+        # Create start.sh
+        print("  - Creating start.sh...")
+        start_script_content = self.generate_start_script()
+        ssh.run(f"echo '{start_script_content}' > {base_dir}/{self.config.DOCKER_CONFIG['start_script']}").raise_on_error()
+        ssh.run(f"chmod +x {base_dir}/{self.config.DOCKER_CONFIG['start_script']}").raise_on_error()
         
-        # Install NATS CLI
-        print("  - Installing NATS CLI...")
-        ssh.run("curl -L https://github.com/nats-io/natscli/releases/latest/download/nats-$(uname -s)-$(uname -m).zip -o /tmp/nats-cli.zip").raise_on_error()
-        ssh.run("apt-get install -y unzip").raise_on_error()
-        ssh.run("unzip -o /tmp/nats-cli.zip -d /tmp").raise_on_error()
-        ssh.run("mv /tmp/nats /usr/local/bin/").raise_on_error()
-        ssh.run("rm /tmp/nats-cli.zip").raise_on_error()
+        # Build Docker environment
+        print("  - Building Docker containers (this may take a while)...")
+        result = ssh.run(f"cd {base_dir} && docker-compose build")
+        if result.exit_code != 0:
+            print(f"Warning: Docker build returned non-zero exit code: {result.exit_code}")
+            print(f"Output: {str(result)}")
+            print(f"Error: {str(result)}")
         
-        # Verify NATS CLI installation
-        ssh.run("nats --version").raise_on_error()
+        # Start Docker containers
+        print("  - Starting Docker containers...")
+        result = ssh.run(f"cd {base_dir} && docker-compose up -d")
+        if result.exit_code != 0:
+            print(f"Warning: Docker compose up returned non-zero exit code: {result.exit_code}")
+            print(f"Output: {str(result)}")
+            print(f"Error: {str(result)}")
         
-        # Install NATS Python client if enabled
-        if self.config.NATS_CONFIG["install_nats_py"]:
+        # Verify containers are running
+        print("  - Verifying containers...")
+        ssh.run("docker ps").raise_on_error()
+    
+    def generate_dockerfile(self):
+        """Generate Dockerfile content based on configuration."""
+        dockerfile = """FROM ubuntu:22.04
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \\
+    wget \\
+    curl \\
+    gnupg2 \\
+    software-properties-common \\
+    apt-transport-https \\
+    ca-certificates \\
+    openjdk-11-jdk \\
+    python3 \\
+    python3-pip \\
+    git \\
+    unzip \\
+    netcat \\
+    sudo \\
+    && rm -rf /var/lib/apt/lists/*
+"""
+        
+        # Add Conda installation if enabled
+        if self.config.MODULE_CONFIG["install_conda"]:
+            dockerfile += """
+# Install Miniconda
+ENV CONDA_DIR /opt/conda
+RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda.sh && \\
+    /bin/bash ~/miniconda.sh -b -p $CONDA_DIR && \\
+    rm ~/miniconda.sh
+
+# Add conda to path
+ENV PATH=$CONDA_DIR/bin:$PATH
+
+# Create conda environment
+RUN conda create -n trading_env python=3.9 -y
+SHELL ["/bin/bash", "-c"]
+RUN echo "source activate trading_env" >> ~/.bashrc
+ENV PATH $CONDA_DIR/envs/trading_env/bin:$PATH
+
+# Install Python packages in the conda environment
+RUN conda install -n trading_env -c conda-forge \\
+    numpy \\
+    pandas \\
+    scipy \\
+    matplotlib \\
+    scikit-learn \\
+    jupyterlab \\
+    ipykernel \\
+    -y
+"""
+        
+        # Add Kafka installation if enabled
+        if self.config.MODULE_CONFIG["install_kafka"]:
+            dockerfile += """
+# Install Kafka
+ENV KAFKA_VERSION=3.5.1
+ENV SCALA_VERSION=2.13
+ENV KAFKA_HOME=/opt/kafka
+RUN mkdir -p $KAFKA_HOME && \\
+    wget -q https://archive.apache.org/dist/kafka/${KAFKA_VERSION}/kafka_${SCALA_VERSION}-${KAFKA_VERSION}.tgz -O /tmp/kafka.tgz && \\
+    tar -xzf /tmp/kafka.tgz -C /opt && \\
+    mv /opt/kafka_${SCALA_VERSION}-${KAFKA_VERSION}/* $KAFKA_HOME && \\
+    rm -rf /opt/kafka_${SCALA_VERSION}-${KAFKA_VERSION} && \\
+    rm /tmp/kafka.tgz
+
+# Add Kafka to PATH
+ENV PATH=$PATH:$KAFKA_HOME/bin
+"""
+        
+        # Add Vertica client installation if enabled
+        if self.config.MODULE_CONFIG["install_vertica"]:
+            dockerfile += """
+# Install Vertica client
+RUN wget -q https://www.vertica.com/client_drivers/12.0.x/12.0.4-0/vertica-client-12.0.4-0.x86_64.tar.gz -O /tmp/vertica-client.tar.gz && \\
+    mkdir -p /opt/vertica && \\
+    tar -xzf /tmp/vertica-client.tar.gz -C /opt/vertica && \\
+    rm /tmp/vertica-client.tar.gz
+
+# Install Vertica Python client
+RUN pip install vertica-python
+"""
+        
+        # Add final parts of Dockerfile
+        dockerfile += """
+# Create working directory
+WORKDIR /app
+
+# Copy startup script
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+
+# Expose ports
+"""
+        
+        # Add port exposures
+        if self.config.MODULE_CONFIG["install_kafka"]:
+            dockerfile += """# Kafka
+EXPOSE 9092
+# Zookeeper
+EXPOSE 2181
+"""
+        
+        if self.config.MODULE_CONFIG["install_jupyter"]:
+            dockerfile += """# Jupyter
+EXPOSE 8888
+"""
+        
+        # Add entrypoint
+        dockerfile += """
+# Set entrypoint
+ENTRYPOINT ["/app/start.sh"]
+"""
+        
+        return dockerfile
+    
+    def generate_docker_compose(self):
+        """Generate docker-compose.yml content based on configuration."""
+        docker_compose = """version: '3'
+
+services:
+  trading-environment:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trading-environment
+    ports:
+"""
+        
+        # Add port mappings
+        if self.config.MODULE_CONFIG["install_jupyter"]:
+            docker_compose += """      # Jupyter Lab
+      - "8888:8888"
+"""
+        
+        if self.config.MODULE_CONFIG["install_kafka"]:
+            docker_compose += """      # Kafka
+      - "9092:9092"
+      # Zookeeper
+      - "2181:2181"
+"""
+        
+        # Add volume mappings
+        docker_compose += """    volumes:
+      # Mount your local data directory
+      - ./data:/app/data
+      # Mount your notebooks directory
+      - ./notebooks:/app/notebooks
+    environment:
+"""
+        
+        # Add environment variables
+        if self.config.MODULE_CONFIG["install_kafka"]:
+            docker_compose += """      # Kafka configuration
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+"""
+        
+        docker_compose += """    restart: unless-stopped
+"""
+        
+        return docker_compose
+    
+    def generate_start_script(self):
+        """Generate start.sh script content based on configuration."""
+        start_script = """#!/bin/bash
+set -e
+
+"""
+        
+        # Add Conda activation if enabled
+        if self.config.MODULE_CONFIG["install_conda"]:
+            start_script += """# Activate conda environment
+source /opt/conda/etc/profile.d/conda.sh
+conda activate trading_env
+
+"""
+        
+        # Add Kafka startup if enabled
+        if self.config.MODULE_CONFIG["install_kafka"]:
+            start_script += """# Start Zookeeper in background
+echo "Starting Zookeeper..."
+$KAFKA_HOME/bin/zookeeper-server-start.sh $KAFKA_HOME/config/zookeeper.properties &
+sleep 10
+
+# Start Kafka in background
+echo "Starting Kafka..."
+$KAFKA_HOME/bin/kafka-server-start.sh $KAFKA_HOME/config/server.properties &
+sleep 10
+
+# Create a default topic
+echo "Creating default topic 'trading-data'..."
+$KAFKA_HOME/bin/kafka-topics.sh --create --topic trading-data --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1 || true
+
+"""
+        
+        # Add Jupyter startup if enabled
+        if self.config.MODULE_CONFIG["install_jupyter"]:
+            start_script += """# Start Jupyter Lab
+echo "Starting Jupyter Lab..."
+jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token='' --NotebookApp.password=''
+"""
+        else:
+            start_script += """# Keep container running
+echo "Container started, keeping it running..."
+tail -f /dev/null
+"""
+        
+        return start_script
+    
+    def create_test_script(self, ssh):
+        """Create a test script to verify all environments."""
+        print("Creating test script...")
+        
+        test_script = """#!/bin/bash
+echo "=== Morph.so Environment Test Script ==="
+echo ""
+
+echo "=== Host Environment ==="
+"""
+        
+        # Add Python/Conda tests if enabled
+        if self.config.MODULE_CONFIG["install_conda"]:
+            test_script += """echo "Python version:"
+python --version
+echo "Conda version:"
+/opt/conda/bin/conda --version
+echo ""
+"""
+        
+        # Add Docker tests if enabled
+        if self.config.MODULE_CONFIG["install_docker"]:
+            test_script += """echo "=== Docker Environment ==="
+echo "Docker version:"
+docker --version
+echo "Docker Compose version:"
+docker-compose --version
+echo ""
+
+echo "=== Docker Container Environment ==="
+CONTAINER_ID=$(docker ps -q | head -n 1)
+if [ -n "$CONTAINER_ID" ]; then
+    echo "Container ID: $CONTAINER_ID"
+    echo "Python version in container:"
+    docker exec $CONTAINER_ID python --version
+    echo "Conda version in container:"
+    docker exec $CONTAINER_ID conda --version
+else
+    echo "No running containers found"
+fi
+echo ""
+"""
+        
+        # Add Kubernetes tests if enabled
+        if self.config.MODULE_CONFIG["install_kubernetes"]:
+            test_script += """echo "=== Kubernetes Environment ==="
+echo "kubectl version:"
+kubectl version --client
+echo "minikube version:"
+minikube version
+if [ -x "$(command -v helm)" ]; then
+    echo "Helm version:"
+    helm version
+fi
+echo ""
+"""
+        
+        # Add C++ tests if enabled
+        if self.config.MODULE_CONFIG["install_cpp"]:
+            test_script += """echo "=== C++ Environment ==="
+echo "GCC version:"
+gcc --version
+echo "G++ version:"
+g++ --version
+echo "CMake version:"
+cmake --version
+echo ""
+"""
+        
+        # Add Go tests if enabled
+        if self.config.MODULE_CONFIG["install_go"]:
+            test_script += """echo "=== Go Environment ==="
+echo "Go version:"
+/usr/local/go/bin/go version
+echo ""
+"""
+        
+        # Write test script to file
+        base_dir = self.config.DIR_CONFIG["base_dir"]
+        ssh.run(f"echo '{test_script}' > {base_dir}/test_environments.sh").raise_on_error()
+        ssh.run(f"chmod +x {base_dir}/test_environments.sh").raise_on_error()
+        
+        # Run the test script
+        print("  - Testing all environments...")
+        ssh.run(f"{base_dir}/test_environments.sh").raise_on_error()
+    
+    def expose_services(self):
+        """Expose services for external access."""
+        print("Exposing services...")
+        
+        # Expose Jupyter if enabled
+        if self.config.SERVICES_CONFIG["expose_jupyter"]:
+            print("  - Exposing Jupyter service...")
+            self.instance.expose_http_service("jupyter", self.config.SERVICES_CONFIG["jupyter_port"])
+            jupyter_url = f"https://jupyter-{self.instance.id.replace('_', '-')}.http.cloud.morph.so"
+            print(f"✓ Jupyter available at: {jupyter_url}")
+        
+        # Expose Kubernetes dashboard if enabled
+        if self.config.SERVICES_CONFIG["expose_kubernetes_dashboard"] and self.config.MODULE_CONFIG["install_kubernetes"]:
+            print("  - Exposing Kubernetes dashboard...")
+            self.instance.expose_http_service("k8s-dashboard", self.config.SERVICES_CONFIG["kubernetes_dashboard_port"])
+            k8s_url = f"https://k8s-dashboard-{self.instance.id.replace('_', '-')}.http.cloud.morph.so"
+            print(f"✓ Kubernetes dashboard available at: {k8s_url}")
+    
+    def create_final_snapshot(self):
+        """Create a snapshot of the fully configured environment."""
+        print("\nCreating snapshot of configured environment...")
+        configured_snapshot = self.instance.snapshot()
+        print(f"✓ Created configured snapshot: {configured_snapshot.id}")
+        return configured_snapshot
+    
+    def create_readme(self, ssh):
+        """Create a README file with usage instructions."""
+        print("Creating README file...")
+        
+        readme = """# Modular Morph.so Environment
+
+This environment has been set up with the following components:
+
+"""
+        # Add components based on configuration
+        if self.config.MODULE_CONFIG["install_docker"]:
+            readme += "- Docker and Docker Compose\n"
+        if self.config.MODULE_CONFIG["install_conda"]:
+            readme += "- Conda for Python package management\n"
+        if self.config.MODULE_CONFIG["install_kafka"]:
+            readme += "- Kafka for event streaming\n"
+        if self.config.MODULE_CONFIG["install_vertica"]:
+            readme += "- Vertica client for database access\n"
+        if self.config.MODULE_CONFIG["install_kubernetes"]:
+            readme += "- Kubernetes (minikube) for container orchestration\n"
+        if self.config.MODULE_CONFIG["install_cpp"]:
+            readme += "- C++ development environment\n"
+        if self.config.MODULE_CONFIG["install_go"]:
+            readme += "- Go programming language\n"
+        if self.config.MODULE_CONFIG["install_jupyter"]:
+            readme += "- Jupyter Lab for interactive development\n"
+        
+        readme += f"""
+## Directory Structure
+
+```
+"""
+        # Add directory structure based on configuration
+        for dir_name, dir_path in self.config.DIR_CONFIG.items():
+            readme += f"{dir_path}/\n"
+        
+        readme += """```
+
+## Usage Instructions
+
+### Docker Environment
+
+"""
+        if self.config.MODULE_CONFIG["install_docker"]:
+            readme += f"""To manage Docker containers:
+```bash
+cd {self.config.DIR_CONFIG["base_dir"]}
+docker-compose up -d    # Start containers
+docker-compose down     # Stop containers
+docker-compose logs     # View container logs
+```
+
+"""
+        
+        # Add Kubernetes instructions if enabled
+        if self.config.MODULE_CONFIG["install_kubernetes"]:
+            readme += """### Kubernetes Environment
+
+To start minikube:
+```bash
+minikube start --driver=docker
+```
+
+To access the Kubernetes dashboard:
+```bash
+minikube dashboard
+```
+
+"""
+        
+        # Add C++ instructions if enabled
+        if self.config.MODULE_CONFIG["install_cpp"]:
+            readme += f"""### C++ Development
+
+A sample C++ project is available at {self.config.DIR_CONFIG["cpp_dir"]}/projects/hello_world
+
+To build and run:
+```bash
+cd {self.config.DIR_CONFIG["cpp_dir"]}/projects/hello_world
+./build.sh
+./build/hello_world
+```
+
+"""
+        
+        # Add Go instructions if enabled
+        if self.config.MODULE_CONFIG["install_go"]:
+            readme += f"""### Go Development
+
+A sample Go project is available at {self.config.DIR_CONFIG["go_dir"]}/projects/hello_world
+
+To build and run:
+```bash
+cd {self.config.DIR_CONFIG["go_dir"]}/projects/hello_world
+./build.sh
+./hello_world
+```
+
+"""
+        
+        # Add testing instructions
+        readme += f"""### Testing All Environments
+
+To verify all installed components:
+```bash
+{self.config.DIR_CONFIG["base_dir"]}/test_environments.sh
+```
+
+"""
+        
+        # Write README to file
+        base_dir = self.config.DIR_CONFIG["base_dir"]
+        ssh.run(f"echo '{readme}' > {base_dir}/README.md").raise_on_error()
+    
+    def run(self):
+        """Run the setup process."""
+        # Create VM
+        self.create_vm()
+        
+        # Set up environment
+        with self.instance.ssh() as ssh:
+            # Set up directory structure
+            self.setup_directories(ssh)
             
-(Content truncated due to size limit. Use line ranges to read in chunks)
+            # Install host tools
+            self.install_host_tools(ssh)
+            
+            # Install Docker
+            self.install_docker(ssh)
+            
+            # Install Kubernetes
+            self.install_kubernetes(ssh)
+            
+            # Install C++
+            self.install_cpp(ssh)
+            
+            # Install Go
+            self.install_go(ssh)
+            
+            # Set up Docker environment
+            self.setup_docker_environment(ssh)
+            
+            # Create test script
+            self.create_test_script(ssh)
+            
+            # Create README
+            self.create_readme(ssh)
+        
+        # Expose services
+        self.expose_services()
+        
+        # Create final snapshot
+        configured_snapshot = self.create_final_snapshot()
+        
+        # Print summary
+        print("\n=== Environment Setup Complete ===")
+        print(f"Instance ID: {self.instance.id}")
+        print(f"Snapshot ID: {configured_snapshot.id}")
+        
+        # Print service URLs
+        if self.config.SERVICES_CONFIG["expose_jupyter"]:
+            print(f"Jupyter URL: https://jupyter-{self.instance.id.replace('_', '-')}.http.cloud.morph.so")
+        
+        if self.config.SERVICES_CONFIG["expose_kubernetes_dashboard"] and self.config.MODULE_CONFIG["install_kubernetes"]:
+            print(f"Kubernetes Dashboard URL: https://k8s-dashboard-{self.instance.id.replace('_', '-')}.http.cloud.morph.so")
+        
+        print("\nTo start a new instance from this snapshot:")
+        print(f"  new_instance = client.instances.start('{configured_snapshot.id}')")
+        
+        if self.config.SERVICES_CONFIG["expose_jupyter"]:
+            print("  new_instance.expose_http_service('jupyter', 8888)")
+            print("  print(f\"Jupyter URL: https://jupyter-{new_instance.id.replace('_', '-')}.http.cloud.morph.so\")")
+        
+        # Return the configured snapshot ID
+        return configured_snapshot.id
+
+def main():
+    """Main entry point."""
+    args = parse_args()
+    config = load_config(args.config)
+    
+    setup = MorphSetup(config)
+    setup.run()
+
+if __name__ == "__main__":
+    main()
