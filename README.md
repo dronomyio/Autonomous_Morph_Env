@@ -91,6 +91,12 @@ This repository contains a dockerized environment for algorithmic trading develo
 
 More products can be added.
 
+
+# Pods
+In a Kubernetes environment, NATS.io and Weaviate would be deployed as pods, but they would typically be managed by Deployments and exposed via Services.
+
+..
+
 ## Manually set up NATS and Kubernetes in your Docker environment. Here's a step-by-step guide 
 
 ### Setting up Kubernetes (Minikube) in Docker
@@ -261,11 +267,6 @@ nats-sub -s nats://nats:4222 ">"
 ```
 
 ### Integrating Weaviate with Kubernetes
-
-
-# Pods
-In a Kubernetes environment, NATS.io and Weaviate would be deployed as pods, but they would typically be managed by Deployments and exposed via Services.
-
 
 
 ### Working with Kafka
