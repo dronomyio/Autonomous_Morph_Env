@@ -113,7 +113,64 @@ go mod tidy
 #### Try building again
 go build -o k8s-check
 ```
-#check the kubectl workin
+# check the kubectl working using go lang
+
+```
+# Create a corrected simple.go file
+cat > simple.go << 'EOF'
+package main
+
+import (
+	"fmt"
+	"os/exec"
+)
+
+func main() {
+	fmt.Println("Checking Kubernetes/Minikube installation...")
+	
+	// Check if kubectl is installed
+	kubectlCmd := exec.Command("kubectl", "version", "--client")
+	kubectlOutput, err := kubectlCmd.CombinedOutput()
+	if err != nil {
+		fmt.Printf("Error checking kubectl: %v\n", err)
+		fmt.Println("kubectl output:", string(kubectlOutput))
+	} else {
+		fmt.Println("✓ kubectl is installed correctly")
+		fmt.Println(string(kubectlOutput))
+	}
+	
+	// Check if minikube is running
+	minikubeCmd := exec.Command("minikube", "status")
+	minikubeOutput, err := minikubeCmd.CombinedOutput()
+	if err != nil {
+		fmt.Printf("Error checking minikube: %v\n", err)
+		fmt.Println("minikube output:", string(minikubeOutput))
+	} else {
+		fmt.Println("\n✓ minikube is running")
+		fmt.Println(string(minikubeOutput))
+	}
+	
+	// Try to get nodes
+	nodesCmd := exec.Command("kubectl", "get", "nodes")
+	nodesOutput, err := nodesCmd.CombinedOutput()
+	if err != nil {
+		fmt.Printf("Error getting nodes: %v\n", err)
+		fmt.Println("kubectl output:", string(nodesOutput))
+	} else {
+		fmt.Println("\n✓ Kubernetes nodes are available:")
+		fmt.Println(string(nodesOutput))
+	}
+}
+EOF
+
+# Build the corrected program
+go build -o k8s-simple-check simple.go
+
+# Run it
+./k8s-simple-check
+
+```
+
 ```
 #### Create a shell script
 cat > check-k8s.sh << 'EOF'
