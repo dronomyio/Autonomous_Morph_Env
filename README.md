@@ -84,6 +84,123 @@ su - minikube_user
 minikube start --driver=docker
 
 ```
+# install go to access kuberneties
+
+First, install the required Go dependencies:
+```
+# Create a new directory for the project
+mkdir -p ~/k8s-check
+cd ~/k8s-check
+
+#install go lang
+```
+# Navigate to your project directory
+cd ~/k8s-check
+
+# Initialize the module with proper Go version
+go mod init k8s-check
+
+# Tidy up dependencies and download all required packages
+go mod tidy
+
+# If you still see errors, try forcing the download of all dependencies
+go get -u k8s.io/client-go@latest
+go get -u k8s.io/apimachinery@latest
+
+# Run tidy again to resolve any conflicts
+go mod tidy
+
+# Try building again
+go build -o k8s-check
+```
+#check the kubectl workin
+```
+# Create a shell script
+cat > check-k8s.sh << 'EOF'
+#!/bin/bash
+
+echo "Checking Kubernetes/Minikube installation..."
+
+echo -e "\n=== kubectl version ==="
+kubectl version --client || echo "kubectl not installed or not working"
+
+echo -e "\n=== minikube status ==="
+minikube status || echo "minikube not running"
+
+echo -e "\n=== Kubernetes nodes ==="
+kubectl get nodes || echo "Cannot get nodes"
+
+echo -e "\n=== Kubernetes pods ==="
+kubectl get pods --all-namespaces || echo "Cannot get pods"
+EOF
+
+# Make it executable
+chmod +x check-k8s.sh
+
+# Run it
+./check-k8s.sh
+
+```
+Or
+```
+# Create a shell script
+cat > check-k8s.sh << 'EOF'
+#!/bin/bash
+
+echo "Checking Kubernetes/Minikube installation..."
+
+echo -e "\n=== kubectl version ==="
+kubectl version --client || echo "kubectl not installed or not working"
+
+echo -e "\n=== minikube status ==="
+minikube status || echo "minikube not running"
+
+echo -e "\n=== Kubernetes nodes ==="
+kubectl get nodes || echo "Cannot get nodes"
+
+echo -e "\n=== Kubernetes pods ==="
+kubectl get pods --all-namespaces || echo "Cannot get pods"
+EOF
+
+# Make it executable
+chmod +x check-k8s.sh
+
+# Run it
+./check-k8s.sh
+
+```
+#These commands will help you verify that your Kubernetes cluster is functioning correctly without needing Go.
+```
+# Check if minikube is running
+minikube status
+
+# Get cluster information
+kubectl cluster-info
+
+# List all nodes
+kubectl get nodes
+
+# Create a test deployment
+kubectl create deployment hello-minikube --image=k8s.gcr.io/echoserver:1.10
+
+# Expose the deployment
+kubectl expose deployment hello-minikube --type=NodePort --port=8080
+
+# Check if the pod is running
+kubectl get pods
+
+# Get the URL to access the service
+minikube service hello-minikube --url
+```
+
+# Initialize Go module
+go mod init k8s-check
+
+# Install required dependencies
+go get k8s.io/client-go@latest
+go get k8s.io/apimachinery@latest
+
+```
 
 # Trading Environment Docker Setup
 ```
