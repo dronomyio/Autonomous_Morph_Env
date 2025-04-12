@@ -97,6 +97,27 @@ In a Kubernetes environment, NATS.io and Weaviate would be deployed as pods, but
 
 ..
 
+## Kubernetes in Docker Environment -- STEP 1
+
+While not included in this minimal setup, Kubernetes can be added later to provide container orchestration capabilities. In a Morph.so environment, Kubernetes (via minikube) operates in a nested virtualization arrangement:
+
+Docker containers run directly on the Morph.so VM, while Kubernetes creates its own virtualized cluster inside Docker containers. This architecture allows Kubernetes pods to run inside Docker containers that themselves run on the VM. When configured, minikube uses Docker as its driver, creating a virtual Kubernetes node as a Docker container. The Kubernetes control plane components run inside this container, and Docker's networking is used to expose Kubernetes services. This approach provides a complete development environment where you can test both simple Docker deployments and complex Kubernetes orchestrations on the same Morph.so instance.
+
+## Extending the Environment
+
+To add additional components later:
+
+1. Start an instance from your minimal snapshot
+2. Install only the components you need:
+   ```bash
+   apt-get update
+   apt-get install -y kubectl minikube  # For Kubernetes
+   apt-get install -y build-essential   # For C++
+   ```
+3. Create a new snapshot of the extended environment
+
+
+
 ## Manually set up NATS and Kubernetes in your Docker environment. Here's a step-by-step guide 
 
 ### Setting up Kubernetes (Minikube) in Docker
@@ -303,24 +324,6 @@ with vertica_python.connect(**conn_info) as connection:
         print(row)
 ```
 
-## Kubernetes in Docker Environment
-
-While not included in this minimal setup, Kubernetes can be added later to provide container orchestration capabilities. In a Morph.so environment, Kubernetes (via minikube) operates in a nested virtualization arrangement:
-
-Docker containers run directly on the Morph.so VM, while Kubernetes creates its own virtualized cluster inside Docker containers. This architecture allows Kubernetes pods to run inside Docker containers that themselves run on the VM. When configured, minikube uses Docker as its driver, creating a virtual Kubernetes node as a Docker container. The Kubernetes control plane components run inside this container, and Docker's networking is used to expose Kubernetes services. This approach provides a complete development environment where you can test both simple Docker deployments and complex Kubernetes orchestrations on the same Morph.so instance.
-
-## Extending the Environment
-
-To add additional components later:
-
-1. Start an instance from your minimal snapshot
-2. Install only the components you need:
-   ```bash
-   apt-get update
-   apt-get install -y kubectl minikube  # For Kubernetes
-   apt-get install -y build-essential   # For C++
-   ```
-3. Create a new snapshot of the extended environment
 
 ## Troubleshooting
 
