@@ -58,6 +58,33 @@ Access Jupyter Lab through either:
 - The exposed HTTP service URL: `https://jupyter-[instance-id].http.cloud.morph.so`
 - SSH port forwarding: `ssh -L 8888:localhost:8888 [instance-id]@ssh.cloud.morph.so`
 
+# Kubernetes
+In a production environment: Install Kubernetes directly on the VM host
+
+```
+# Install kubectl
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt) /bin/linux/amd64/kubectl"
+chmod +x kubectl
+sudo mv kubectl /usr/local/bin/
+
+# Install Minikube
+curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+chmod +x minikube-linux-amd64
+sudo mv minikube-linux-amd64 /usr/local/bin/minikube
+
+# Start Minikube if root --force it
+# minikube start --driver=docker --force
+# if inside docker for testing
+# minikube start --driver=none
+# create a user and then start with that user
+
+sudo adduser minikube_user
+sudo usermod -aG docker minikube_user
+su - minikube_user
+minikube start --driver=docker
+
+```
+
 # Trading Environment Docker Setup
 ```
 
