@@ -260,6 +260,14 @@ nats-sub -s nats://nats:4222 ">"
 
 ```
 
+### Integrating Weaviate with Kubernetes
+
+
+# Pods
+In a Kubernetes environment, NATS.io and Weaviate would be deployed as pods, but they would typically be managed by Deployments and exposed via Services.
+
+
+
 ### Working with Kafka
 
 ```bash
